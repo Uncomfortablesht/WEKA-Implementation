@@ -1,6 +1,7 @@
 services:
   - type: web
     name: weka-clustering-service
+    runtime: docker
     dockerfilePath: ./Dockerfile
     dockerContext: .
     envVars:
