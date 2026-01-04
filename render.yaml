@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: weka-clustering-service
+    env: java
+    buildCommand: mvn clean install
+    startCommand: java -jar target/weka-service-1.0.0.jar
+    envVars:
+      - key: PORT
+        value: 8080
+      - key: JAVA_OPTS
+        value: -Xmx512m -Xms256m
+
