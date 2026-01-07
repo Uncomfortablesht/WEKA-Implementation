@@ -182,20 +182,45 @@ public class ClusteringService {
             averages.put(entry.getKey(), avg);
         }
 
-        // Sort by average score
+        // Sort by average score (highest to lowest)
         List<Map.Entry<Integer, Double>> sorted = new ArrayList<>(averages.entrySet());
         sorted.sort((a, b) -> Double.compare(b.getValue(), a.getValue()));
 
-        // Assign labels
-        String[] labels = {"High Achievers", "Average Performers", "Needs Support"};
-        for (int i = 0; i < sorted.size() && i < labels.length; i++) {
-            labelMap.put(sorted.get(i).getKey(), labels[i]);
+        // Define performance level labels
+        String[] performanceLabels = {
+            "High Achievers",           // Top performers
+            "Above Average",            // Second tier
+            "Average Performers",       // Middle tier
+            "Below Average",            // Fourth tier
+            "Needs Support"             // Lowest performers
+        };
+        
+        // Assign meaningful labels based on performance ranking
+        for (int i = 0; i < sorted.size(); i++) {
+            int clusterNum = sorted.get(i).getKey();
+            double avgScore = sorted.get(i).getValue();
+            
+            if (i < performanceLabels.length) {
+                // Use predefined performance labels for top clusters
+                labelMap.put(clusterNum, performanceLabels[i]);
+            } else {
+                // For clusters beyond the predefined labels, use performance-based naming
+                if (avgScore >= 80) {
+                    labelMap.put(clusterNum, "High Performers");
+                } else if (avgScore >= 60) {
+                    labelMap.put(clusterNum, "Average Performers");
+                } else if (avgScore >= 40) {
+                    labelMap.put(clusterNum, "Below Average");
+                } else {
+                    labelMap.put(clusterNum, "Needs Support");
+                }
+            }
         }
 
-        // Fill remaining clusters
+        // Ensure all clusters have labels (fallback for any missing)
         for (int i = 0; i < numClusters; i++) {
             if (!labelMap.containsKey(i)) {
-                labelMap.put(i, "Cluster " + i);
+                labelMap.put(i, "Average Performers");
             }
         }
 
