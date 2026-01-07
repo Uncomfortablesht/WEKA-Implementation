@@ -3,6 +3,8 @@ package com.clustering;
 import weka.clusterers.SimpleKMeans;
 import weka.core.Attribute;
 import weka.core.DenseInstance;
+import weka.core.EuclideanDistance;
+import weka.core.Instance;
 import weka.core.Instances;
 import weka.filters.Filter;
 import weka.filters.unsupervised.attribute.Remove;
@@ -71,8 +73,11 @@ public class ClusteringService {
             assignment.setClusterLabel(labelMap.get(assignment.getClusterNumber()));
         }
 
+        // Calculate silhouette score
+        double silhouetteScore = calculateSilhouetteScore(dataClusterer, kmeans, assignments);
+
         // Generate report
-        Map<String, Object> report = generateReport(assignments, numClusters);
+        Map<String, Object> report = generateReport(assignments, numClusters, silhouetteScore);
 
         // Create response
         ClusteringResponse response = new ClusteringResponse();
@@ -197,11 +202,115 @@ public class ClusteringService {
         return labelMap;
     }
 
-    private Map<String, Object> generateReport(List<ClusteringResponse.ClusterAssignment> assignments, int numClusters) {
+    /**
+     * Calculate silhouette score for clustering quality assessment
+     * Silhouette score ranges from -1 to 1:
+     * - 1: Perfect clustering
+     * - 0: Overlapping clusters
+     * - -1: Wrong clustering
+     */
+    private double calculateSilhouetteScore(
+            Instances data,
+            SimpleKMeans clusterer,
+            List<ClusteringResponse.ClusterAssignment> assignments) {
+        
+        if (data.numInstances() < 2) {
+            return 0.0; // Cannot calculate with less than 2 instances
+        }
+
+        try {
+            // Initialize distance function
+            EuclideanDistance distance = new EuclideanDistance(data);
+            distance.setDontNormalize(false);
+
+            // Create cluster assignment map for quick lookup
+            Map<Integer, Integer> instanceToCluster = new HashMap<>();
+            for (int i = 0; i < assignments.size(); i++) {
+                instanceToCluster.put(i, assignments.get(i).getClusterNumber());
+            }
+
+            // Group instances by cluster
+            Map<Integer, List<Integer>> clusterInstances = new HashMap<>();
+            for (int i = 0; i < data.numInstances(); i++) {
+                int cluster = instanceToCluster.get(i);
+                clusterInstances.computeIfAbsent(cluster, k -> new ArrayList<>()).add(i);
+            }
+
+            double totalSilhouette = 0.0;
+            int validInstances = 0;
+
+            // Calculate silhouette for each instance
+            for (int i = 0; i < data.numInstances(); i++) {
+                Instance instance = data.instance(i);
+                int ownCluster = instanceToCluster.get(i);
+                List<Integer> ownClusterInstances = clusterInstances.get(ownCluster);
+
+                // Calculate a(i): average distance to other points in same cluster
+                double a_i = 0.0;
+                if (ownClusterInstances.size() > 1) {
+                    double sumDist = 0.0;
+                    int count = 0;
+                    for (int j : ownClusterInstances) {
+                        if (i != j) {
+                            sumDist += distance.distance(instance, data.instance(j));
+                            count++;
+                        }
+                    }
+                    a_i = count > 0 ? sumDist / count : 0.0;
+                } else {
+                    a_i = 0.0; // Only one instance in cluster
+                }
+
+                // Calculate b(i): average distance to points in nearest other cluster
+                double b_i = Double.MAX_VALUE;
+                for (Map.Entry<Integer, List<Integer>> entry : clusterInstances.entrySet()) {
+                    if (entry.getKey() != ownCluster) {
+                        double avgDist = 0.0;
+                        int count = 0;
+                        for (int j : entry.getValue()) {
+                            avgDist += distance.distance(instance, data.instance(j));
+                            count++;
+                        }
+                        if (count > 0) {
+                            avgDist = avgDist / count;
+                            b_i = Math.min(b_i, avgDist);
+                        }
+                    }
+                }
+
+                // If only one cluster exists, set b_i to a large value
+                if (b_i == Double.MAX_VALUE) {
+                    b_i = a_i > 0 ? a_i * 2 : 1.0;
+                }
+
+                // Calculate silhouette for this instance: s(i) = (b(i) - a(i)) / max(a(i), b(i))
+                double maxAB = Math.max(a_i, b_i);
+                if (maxAB > 0) {
+                    double silhouette_i = (b_i - a_i) / maxAB;
+                    totalSilhouette += silhouette_i;
+                    validInstances++;
+                }
+            }
+
+            // Return average silhouette score
+            return validInstances > 0 ? totalSilhouette / validInstances : 0.0;
+
+        } catch (Exception e) {
+            // If calculation fails, return 0.0
+            System.err.println("Error calculating silhouette score: " + e.getMessage());
+            return 0.0;
+        }
+    }
+
+    private Map<String, Object> generateReport(
+            List<ClusteringResponse.ClusterAssignment> assignments, 
+            int numClusters,
+            double silhouetteScore) {
         Map<String, Object> report = new HashMap<>();
         report.put("analysis_date", new Date().toString());
         report.put("total_students", assignments.size());
         report.put("number_of_clusters", numClusters);
+        report.put("silhouette_score", Math.round(silhouetteScore * 10000.0) / 10000.0); // Round to 4 decimal places
 
         // Count by cluster
         Map<Integer, Integer> counts = new HashMap<>();
